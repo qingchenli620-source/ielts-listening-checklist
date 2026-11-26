@@ -94,7 +94,20 @@ h1 { font-size: 26px; letter-spacing: 0.01em; line-height: 1.25; }
 
 .lead { margin-top: 4px; color: var(--muted); font-size: 14px; }
 
-form { display: flex; flex-direction: column; gap: 12px; margin-top: 18px; }
+.tabs { display: flex; gap: 8px; margin-top: 18px; }
+
+.tab {
+  flex: 1;
+  border: 1px solid #d9d0c1;
+  background: transparent;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-weight: 700;
+}
+
+.tab.on { background: var(--teal); color: white; border-color: var(--teal); }
+
+form { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
 
 label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 600; }
 
@@ -332,6 +345,19 @@ details[open] > summary .chev { transform: rotate(45deg); margin-top: 6px; }
 }
 
 .jump:hover { background: #e3f0eb; }
+
+.flag {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 6px 2px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.flag:hover { color: var(--seal); }
 
 .foot { margin-top: 18px; color: var(--muted); font-size: 13px; }
 

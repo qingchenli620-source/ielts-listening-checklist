@@ -21,6 +21,10 @@
         </div>
       </div>
       <p id="config-problems" class="warn" hidden></p>
+      <div class="tabs" role="tablist">
+        <button type="button" id="tab-login" class="tab on" role="tab" aria-selected="true">登录</button>
+        <button type="button" id="tab-register" class="tab" role="tab" aria-selected="false">注册</button>
+      </div>
       <form id="login-form">
         <label>邮箱
           <input id="email" name="email" type="email" autocomplete="username" inputmode="email" required>
@@ -30,6 +34,22 @@
         </label>
         <p id="login-error" class="form-error" role="alert" hidden></p>
         <button id="login-submit" class="primary" type="submit">登录</button>
+      </form>
+      <form id="register-form" hidden>
+        <label>邮箱
+          <input id="reg-email" name="email" type="email" autocomplete="username" inputmode="email" required>
+        </label>
+        <label>密码
+          <input id="reg-password" name="password" type="password" autocomplete="new-password" minlength="6" required>
+        </label>
+        <label>再输入一次
+          <input id="reg-password-2" type="password" autocomplete="new-password" minlength="6" required>
+        </label>
+        <label>邀请码
+          <input id="reg-code" name="code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="付款后由站长发给你" required>
+        </label>
+        <p id="reg-error" class="form-error" role="alert" hidden></p>
+        <button id="reg-submit" class="primary" type="submit">注册</button>
       </form>
       <div class="purchase">
         <h2>如何获得账号</h2>
@@ -120,6 +140,21 @@
       <div class="dialog-actions">
         <button type="button" id="password-cancel">取消</button>
         <button type="submit" id="password-save" class="primary">保存</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="report-modal" class="overlay" hidden>
+    <form class="dialog" id="report-form" role="dialog" aria-modal="true" aria-labelledby="report-title">
+      <h2 id="report-title">报告这个词有问题</h2>
+      <p id="report-word"></p>
+      <label>说明（可选）
+        <textarea id="report-note" maxlength="500" placeholder="例如：拼写不对，音频里听到的是……"></textarea>
+      </label>
+      <p id="report-error" class="form-error" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" id="report-cancel">取消</button>
+        <button type="submit" id="report-save" class="primary">提交</button>
       </div>
     </form>
   </div>

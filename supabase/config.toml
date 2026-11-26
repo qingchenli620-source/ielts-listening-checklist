@@ -1,0 +1,6 @@
+# register 必须允许未登录调用，否则注册页发不出请求。
+# 这不等于开放注册：Auth 里的公开注册保持关闭。
+# 函数在服务器上用服务端密钥建账号，并且先核销一次有效的邀请码。
+
+[functions.register]
+verify_jwt = false

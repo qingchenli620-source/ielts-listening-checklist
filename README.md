@@ -1,22 +1,22 @@
 # 雅思听力词汇勾选表
 
-这是一个放在 GitHub Pages 上的付费词表。买家用你开通的邮箱和密码登录，勾选单词，点时间可以跳到 B 站视频里的原句。勾选和字号保存在 Supabase，换手机或电脑登录同一个邮箱就能看到。
+这是一个放在 GitHub Pages 上的付费词表。买家用邀请码自己注册，登录后勾选单词，点时间可以跳到 B 站视频里的原句。勾选和字号保存在 Supabase，换手机或电脑登录同一个邮箱就能看到。
 
 单词不在这个仓库里，也不会出现在未登录的页面上。没有账号的人只能看到登录页。
 
 部署完成后的网址：
 
-https://qingchenli620-source.github.io/ielts-listening-checklist/
+https://wdppx620.github.io/ielts-listening-checklist/
 
 ## 你需要亲手做的事
 
 1. 创建一个免费的 Supabase 项目。
 2. 在 SQL Editor 里运行 `supabase/schema.sql`。
 3. 用本仓库的工具，把语料库 JSON 生成 SQL，再分段粘贴到 SQL Editor。
-4. 关闭公开注册，并关掉匿名登录。
+4. 关闭公开注册，并关掉匿名登录。注册走邀请码，这一项要一直关着。
 5. 把 Supabase 网址和 anon key 填进 `site/config.js`，提交到 `main`。
 6. 在仓库 Settings → Pages 里把 Source 选成 GitHub Actions。
-7. 以后在 Supabase 后台给买家开账号、重置密码或删除账号。
+7. 部署邀请码函数后，在 SQL Editor 里生成邀请码发给买家。也可以继续在后台手动建账号。重置密码、删除账号的办法不变。
 
 网页本身不用安装、不用打包。买家打开上面的网址即可。
 
@@ -103,7 +103,9 @@ node scripts/generate-seed.mjs
 
 ## 4. 关闭公开注册
 
-这一步不做的话，别人即使没有付款，也可以自己注册一个账号，然后读到全部单词。
+公开注册必须保持关闭。网页上的「注册」不会走 Supabase 的公开注册，而是把邀请码交给服务器上的函数。函数核对邀请码后才建账号。
+
+如果把 **Allow new users to sign up** 打开，别人拿到网页里的 anon key 就可以不填邀请码自己注册。
 
 1. 打开 **Authentication → Sign In / Providers**（有的项目在 **Authentication → Providers**）。
 2. 确认 **Email** 是开启的。买家靠邮箱和密码登录，这一项不能关。
@@ -112,8 +114,9 @@ node scripts/generate-seed.mjs
 
 关掉之后：
 
-- 别人不能自己注册。
+- 没有邀请码就不能注册。
 - 你在后台手动添加的账号仍然可以登录。
+- 用过的邀请码不能再用。
 
 可选，但建议做，否则「忘记密码」的邮件会跳到 localhost：
 
@@ -121,7 +124,7 @@ node scripts/generate-seed.mjs
 2. **Site URL** 填：
 
 ```text
-https://qingchenli620-source.github.io/ielts-listening-checklist/
+https://wdppx620.github.io/ielts-listening-checklist/
 ```
 
 3. **Redirect URLs** 里也加上同一条。
@@ -144,7 +147,7 @@ anon / publishable key 出现在网页里是正常的。真正拦住别人的是
 2. **Build and deployment → Source** 选 **GitHub Actions**。
 3. 打开 **Actions**。`main` 上每一次提交都会跑 **Deploy GitHub Pages**。
 4. 等它变成绿色。
-5. 打开 [https://qingchenli620-source.github.io/ielts-listening-checklist/](https://qingchenli620-source.github.io/ielts-listening-checklist/)。
+5. 打开 [https://wdppx620.github.io/ielts-listening-checklist/](https://wdppx620.github.io/ielts-listening-checklist/)。
 
 如果 Action 是红色，点进去看错误。最常见的是 Pages 还没选 GitHub Actions。选好之后，在失败的那次运行里点 **Re-run jobs**。
 
@@ -160,18 +163,43 @@ anon / publishable key 出现在网页里是正常的。真正拦住别人的是
 
 ## 7. 给买家开通账号
 
-买家付款后：
+买家付款后，生成一个邀请码，私下发给对方。对方打开网站，点「注册」，填写自己的邮箱、密码和邀请码。注册成功会直接登录，不需要再去邮箱里点确认信。
 
-1. Supabase → **Authentication → Users**。
-2. **Add user → Create new user**。
-3. 填写买家的邮箱和你设定的初始密码。
-4. 勾选 **Auto Confirm User**。不勾的话，对方会看到「这个账号还没激活」。
-5. 点创建。
-6. 把网址、邮箱和初始密码私下发给对方，让对方登录后点「修改密码」。
+一个邀请码只能用一次。用过之后会记下邮箱和使用时间。
 
-不要用 **Invite user** / **Send invitation**，除非你已经配好了上面的 Site URL，并且对方愿意去邮箱里点链接。直接创建并勾选 Auto Confirm，对方马上就能登录。
+在 **SQL Editor → New query** 里运行：
 
-网页上没有注册按钮。即使有人拿到 anon key，在注册关闭之后也不能自己开账号。
+```sql
+select public.generate_invite_codes(20);
+```
+
+把 `20` 换成你这次要的数量，最少 1，最多 500。结果里每一行是一个邀请码。
+
+查看哪些用过、哪些还没用：
+
+```sql
+select
+  code,
+  created_at,
+  used_at,
+  used_email,
+  case when used_at is null then '未使用' else '已使用' end as status
+from public.invite_codes
+order by created_at desc;
+```
+
+只看还没用的：
+
+```sql
+select code, created_at
+from public.invite_codes
+where used_at is null
+order by created_at;
+```
+
+登录页底部的购买说明可以改成「付款后把邀请码发给你」。改 `site/config.js` 里的 `purchaseNote`。
+
+仍然可以手动建账号：Authentication → Users → Add user → Create new user，勾选 **Auto Confirm User**。这不消耗邀请码。不要用 Invite user，除非对方愿意去邮箱里点链接。
 
 ## 8. 重置密码
 
@@ -218,8 +246,30 @@ SQL Editor 里会留下这段文字，所以用完可以清掉查询历史，密
 
 对方立刻不能再登录。他的勾选和字号会一起删除。单词表本身还在，其他买家不受影响。
 
+## 10. 查看买家报告的错误
+
+登录后，每个单词旁边有「报错」。对方可以留下一句说明。你在 SQL Editor 里查看：
+
+```sql
+select
+  r.created_at,
+  u.email,
+  r.item_id,
+  i.page,
+  i.en,
+  i.t,
+  r.note
+from public.word_reports r
+join public.items i on i.id = r.item_id
+left join auth.users u on u.id = r.user_id
+order by r.created_at desc;
+```
+
+买家只能提交自己的报错，不能看到别人提交的内容。
+
 ## 买家看到的功能
 
+- 用邀请码注册，或用已有邮箱登录。
 - 按 P1 到 P32 分集，每集有「已勾选 / 总数」和进度条。
 - 勾选单词。勾选会马上记到账号里。
 - 点时间，在新标签打开 B 站对应的秒数。
@@ -230,6 +280,7 @@ SQL Editor 里会留下这段文字，所以用完可以清掉查询历史，密
 - 字号 A− / A+，范围 14 到 36，记在账号里。
 - 清空自己的全部勾选。
 - 修改密码、退出、刷新（从账号重新拉取勾选和字号）。
+- 每个单词可以点「报错」，附上一句说明。
 
 旧的单文件原型把勾选存在浏览器本地，这个网站不会把那些勾选搬过来。
 
@@ -242,7 +293,13 @@ SQL Editor 里会留下这段文字，所以用完可以清掉查询历史，密
 密码区分大小写。也可以在 SQL Editor 用第 8 步重设。
 
 **这个账号还没激活。**  
-创建用户时没有勾选 Auto Confirm User。删掉这个用户，重新创建并勾选。还没勾选过单词的话，删掉没有损失。
+这是手动创建的账号，创建时没有勾选 Auto Confirm User。删掉这个用户，重新创建并勾选。用邀请码注册的账号不需要这一步。还没勾选过单词的话，删掉没有损失。
+
+**邀请码无效或已经使用过。**  
+对照上面的查询，看这个码是不是已经有 `used_at`。用过的码不能再用，再生成一个即可。
+
+**注册页一直连不上。**  
+公开注册要保持关闭。另外要确认名为 `register` 的函数已经部署，并且 `verify_jwt` 是关闭的。没有部署这个函数时，注册会失败，登录和手动开通的账号不受影响。
 
 **能登录，但词表是空的，或底部不是 5463。**  
 `99_check.sql` 的结果不是 32 和 5463。把生成的 SQL 按顺序再运行一遍。
@@ -259,7 +316,10 @@ SQL Editor 里会留下这段文字，所以用完可以清掉查询历史，密
 ## 网站里有哪些文件
 
 - `site/`：实际发布到 GitHub Pages 的网页。`config.js` 是唯一要改的配置。`vendor/supabase.js` 是已下载好的登录库，避免买家的浏览器再去加载国外 CDN。
-- `supabase/schema.sql`：建表和权限。
+- `supabase/schema.sql`：第一次建表和权限。已经建过库就不要整份重跑。
+- `supabase/migrations/20261126120000_invite_codes_and_word_reports.sql`：给已经建好的库加上邀请码和报错。在 SQL Editor 里整段运行一次。
+- `supabase/functions/register/index.ts`：注册函数。要部署到 Supabase，并且 `verify_jwt` 设为关闭。部署时不要把 service_role / secret key 写进网页。
+- `supabase/config.toml`：标明这个函数不校验登录令牌。安全靠「公开注册关闭」和「邀请码只用一次」。
 - `tools/make-seed.html` 和 `scripts/generate-seed.mjs`：在你自己的电脑上把 JSON 变成 SQL。
 - `.github/workflows/pages.yml`：推到 `main` 时，只把 `site/` 发布到 GitHub Pages。
 - `scripts/test-*.mjs` 和 `scripts/mock-supabase.mjs`：开发时用来检查网页，部署和卖给买家都不需要运行。

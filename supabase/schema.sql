@@ -6,6 +6,7 @@
 -- 所以接下来导入词表时，SQL Editor 仍然可以写入。
 -- 网页里的访客（anon）什么都读不到。
 -- 登录后的买家（authenticated）只能读词表，并且只能读写自己的勾选和字号。
+-- 已经建过库的项目不要重跑本文件，改跑 supabase/migrations 里的新文件。
 
 create table if not exists public.videos (
   page integer primary key check (page > 0),
@@ -117,3 +118,81 @@ create policy preferences_update_own
   to authenticated
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
+
+-- 邀请码和单词报错。与 migrations/20261126120000_invite_codes_and_word_reports.sql 相同。
+
+create table if not exists public.invite_codes (
+  code text primary key check (code ~ '^[A-F0-9]{12}$'),
+  created_at timestamptz not null default now(),
+  used_at timestamptz,
+  used_by uuid references auth.users (id) on delete set null,
+  used_email text
+);
+
+create index if not exists invite_codes_used_at_idx on public.invite_codes (used_at);
+
+create table if not exists public.word_reports (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  item_id text not null references public.items (id) on delete cascade,
+  note text,
+  created_at timestamptz not null default now(),
+  constraint word_reports_note_len check (note is null or char_length(note) <= 500)
+);
+
+create index if not exists word_reports_created_at_idx on public.word_reports (created_at desc);
+
+comment on table public.invite_codes is '一次性邀请码。用过之后不能再用。';
+comment on table public.word_reports is '买家报告单词有误。站长在 SQL Editor 里查看。';
+
+alter table public.invite_codes enable row level security;
+alter table public.word_reports enable row level security;
+
+revoke all on table public.invite_codes from public, anon, authenticated;
+revoke all on table public.word_reports from public, anon, authenticated;
+
+grant insert on table public.word_reports to authenticated;
+grant all on table public.invite_codes to service_role;
+grant all on table public.word_reports to service_role;
+
+drop policy if exists word_reports_insert_own on public.word_reports;
+create policy word_reports_insert_own
+  on public.word_reports
+  for insert
+  to authenticated
+  with check (auth.uid() = user_id);
+
+create or replace function public.generate_invite_codes(n integer)
+returns setof text
+language plpgsql
+as $$
+declare
+  i integer;
+  attempt integer;
+  new_code text;
+begin
+  if n is null or n < 1 or n > 500 then
+    raise exception '数量要在 1 到 500 之间';
+  end if;
+
+  for i in 1..n loop
+    attempt := 0;
+    loop
+      new_code := upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 12));
+      begin
+        insert into public.invite_codes (code) values (new_code);
+        exit;
+      exception when unique_violation then
+        attempt := attempt + 1;
+        if attempt > 20 then
+          raise exception '生成邀请码失败，请再运行一次';
+        end if;
+      end;
+    end loop;
+    return next new_code;
+  end loop;
+end;
+$$;
+
+revoke all on function public.generate_invite_codes(integer) from public, anon, authenticated;
+grant execute on function public.generate_invite_codes(integer) to postgres;

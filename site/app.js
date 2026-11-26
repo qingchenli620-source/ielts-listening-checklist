@@ -13,6 +13,7 @@ var state = {
   query: "",
   onlyTicked: false,
   exportText: "",
+  reportItemId: "",
 };
 
 var desiredTicks = new Map();
@@ -103,7 +104,7 @@ function showConfigProblems(problems) {
   var box = document.getElementById("config-problems");
   box.hidden = false;
   box.textContent = problems.join("\n");
-  document.querySelectorAll("#login-form input, #login-form button").forEach(function (el) {
+  document.querySelectorAll("#login-form input, #login-form button, #register-form input, #register-form button, .tab").forEach(function (el) {
     el.disabled = true;
   });
 }
@@ -151,6 +152,7 @@ function wordsHtml(items) {
           '<input type="checkbox"' + (on ? " checked" : "") + ' aria-label="' + esc(item.en) + '">' +
           '<span class="text"><span class="en">' + esc(item.en) + "</span>" + zh + "</span>" +
         "</label>" +
+        '<button type="button" class="flag">报错</button>' +
         '<a class="jump" target="_blank" rel="noopener noreferrer" href="' + esc(jumpUrl(video, item.t)) + '">▶ ' + fmt(item.t) + "</a>" +
       "</div>"
     );
@@ -491,7 +493,86 @@ async function copyExport() {
   toast("请在文本框里全选并复制");
 }
 
+function showAuthTab(name) {
+  var register = name === "register";
+  document.getElementById("login-form").hidden = register;
+  document.getElementById("register-form").hidden = !register;
+  document.getElementById("tab-login").classList.toggle("on", !register);
+  document.getElementById("tab-register").classList.toggle("on", register);
+  document.getElementById("tab-login").setAttribute("aria-selected", register ? "false" : "true");
+  document.getElementById("tab-register").setAttribute("aria-selected", register ? "true" : "false");
+}
+
+function closeReport() {
+  document.getElementById("report-modal").hidden = true;
+}
+
+async function registerAccount() {
+  var button = document.getElementById("reg-submit");
+  var err = document.getElementById("reg-error");
+  var email = document.getElementById("reg-email").value.trim();
+  var password = document.getElementById("reg-password").value;
+  var again = document.getElementById("reg-password-2").value;
+  var code = document.getElementById("reg-code").value;
+  err.hidden = true;
+  if (password.length < 6) {
+    err.hidden = false;
+    err.textContent = "密码至少 6 位。";
+    return;
+  }
+  if (password !== again) {
+    err.hidden = false;
+    err.textContent = "两次输入的密码不一致。";
+    return;
+  }
+  button.disabled = true;
+  button.textContent = "正在注册…";
+  try {
+    var cfg = readConfig();
+    var response = await fetch(cfg.url + "/functions/v1/register", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        apikey: cfg.key,
+        authorization: "Bearer " + cfg.key,
+      },
+      body: JSON.stringify({ email: email, password: password, code: code }),
+    });
+    var payload = {};
+    try { payload = await response.json(); } catch (parseErr) { payload = {}; }
+    if (!response.ok || !payload.ok) {
+      err.hidden = false;
+      err.textContent = payload.error || "注册没有成功，请稍后再试。";
+      return;
+    }
+    var signedIn = await state.client.auth.signInWithPassword({ email: email, password: password });
+    if (signedIn.error || !signedIn.data.session) {
+      showAuthTab("login");
+      document.getElementById("email").value = email;
+      var loginErr = document.getElementById("login-error");
+      loginErr.hidden = false;
+      loginErr.textContent = "注册成功了，但自动登录失败。请用刚才的邮箱和密码登录。";
+      return;
+    }
+    await enterApp(signedIn.data.session, false);
+  } catch (networkErr) {
+    console.error(networkErr);
+    err.hidden = false;
+    err.textContent = "连不上注册服务。请稍后再试。";
+  } finally {
+    button.disabled = false;
+    button.textContent = "注册";
+  }
+}
+
 function wire() {
+  document.getElementById("tab-login").addEventListener("click", function () { showAuthTab("login"); });
+  document.getElementById("tab-register").addEventListener("click", function () { showAuthTab("register"); });
+  document.getElementById("register-form").addEventListener("submit", function (event) {
+    event.preventDefault();
+    registerAccount();
+  });
+
   document.getElementById("login-form").addEventListener("submit", async function (event) {
     event.preventDefault();
     var button = document.getElementById("login-submit");
@@ -657,10 +738,57 @@ function wire() {
     queueTick(id, on);
   });
 
+  document.getElementById("list").addEventListener("click", function (event) {
+    var button = event.target.closest(".flag");
+    if (!button) return;
+    var row = button.closest(".word");
+    if (!row) return;
+    state.reportItemId = row.dataset.id;
+    var item = state.itemById.get(state.reportItemId);
+    document.getElementById("report-word").textContent = item ? item.en : state.reportItemId;
+    document.getElementById("report-note").value = "";
+    document.getElementById("report-error").hidden = true;
+    document.getElementById("report-modal").hidden = false;
+    document.getElementById("report-note").focus();
+  });
+
+  document.getElementById("report-cancel").addEventListener("click", closeReport);
+  document.getElementById("report-modal").addEventListener("click", function (event) {
+    if (event.target.id === "report-modal") closeReport();
+  });
+  document.getElementById("report-form").addEventListener("submit", async function (event) {
+    event.preventDefault();
+    var err = document.getElementById("report-error");
+    var button = document.getElementById("report-save");
+    var note = document.getElementById("report-note").value.trim();
+    err.hidden = true;
+    if (note.length > 500) {
+      err.hidden = false;
+      err.textContent = "说明请控制在 500 字以内。";
+      return;
+    }
+    button.disabled = true;
+    var result = await state.client.from("word_reports").insert({
+      user_id: state.userId,
+      item_id: state.reportItemId,
+      note: note || null,
+    });
+    button.disabled = false;
+    if (result.error) {
+      console.error(result.error);
+      err.hidden = false;
+      err.textContent = "没有提交成功，请稍后再试。";
+      return;
+    }
+    closeReport();
+    toast("已提交，谢谢");
+  });
+
   document.addEventListener("keydown", function (event) {
     if (event.key !== "Escape") return;
     document.getElementById("modal").hidden = true;
     closePassword();
+    closeReport();
   });
 }
 

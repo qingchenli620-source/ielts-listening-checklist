@@ -111,6 +111,55 @@ try {
   const newPassword = await clientA.auth.signInWithPassword({ email: "buyer-a@example.com", password: "password-a2" });
   assert(!newPassword.error, "新密码不能登录");
 
+  const openSignup = await fetch(url + "/auth/v1/signup", {
+    method: "POST",
+    headers: { "content-type": "application/json", apikey: anonKey, authorization: "Bearer " + anonKey },
+    body: JSON.stringify({ email: "buyer-c@example.com", password: "password-c" }),
+  });
+  assert(openSignup.status === 422, "公开注册应保持关闭，实际 " + openSignup.status);
+
+  const badCode = await fetch(url + "/functions/v1/register", {
+    method: "POST",
+    headers: { "content-type": "application/json", apikey: anonKey, authorization: "Bearer " + anonKey },
+    body: JSON.stringify({ email: "buyer-c@example.com", password: "password-c", code: "NOPE" }),
+  });
+  assert(badCode.status === 400, "坏邀请码应拒绝，实际 " + badCode.status);
+
+  const created = await fetch(url + "/functions/v1/register", {
+    method: "POST",
+    headers: { "content-type": "application/json", apikey: anonKey, authorization: "Bearer " + anonKey },
+    body: JSON.stringify({ email: "buyer-c@example.com", password: "password-c", code: "A1B2C3D4E5F6" }),
+  });
+  const createdBody = await created.json();
+  assert(created.status === 200 && createdBody.ok, JSON.stringify(createdBody));
+
+  const reused = await fetch(url + "/functions/v1/register", {
+    method: "POST",
+    headers: { "content-type": "application/json", apikey: anonKey, authorization: "Bearer " + anonKey },
+    body: JSON.stringify({ email: "buyer-d@example.com", password: "password-d", code: "a1b2-c3d4-e5f6" }),
+  });
+  assert(reused.status === 400, "用过的邀请码应拒绝，实际 " + reused.status);
+
+  const clientC = createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
+  const loginC = await clientC.auth.signInWithPassword({ email: "buyer-c@example.com", password: "password-c" });
+  assert(!loginC.error, loginC.error && loginC.error.message);
+  const report = await clientC.from("word_reports").insert({
+    user_id: loginC.data.user.id,
+    item_id: sample.id,
+    note: "拼写",
+  });
+  assert(!report.error, report.error && report.error.message);
+  const otherReport = await clientC.from("word_reports").insert({
+    user_id: "22222222-2222-4222-8222-222222222222",
+    item_id: sample.id,
+    note: "不行",
+  });
+  assert(otherReport.error, "不该能替别人提交报错");
+  const leaked = await clientC.from("word_reports").select("note");
+  assert(leaked.error, "买家不该能读报错列表");
+  const codes = await clientC.from("invite_codes").select("code");
+  assert(codes.error, "买家不该能读邀请码");
+
   console.log("api ok");
 } finally {
   child.kill("SIGTERM");

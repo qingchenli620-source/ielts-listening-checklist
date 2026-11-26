@@ -1,7 +1,7 @@
 // 本地测试用的 Supabase 替身：只实现这个网页实际调用的 Auth 和 REST。
 // 不是真的 Supabase。权限规则按 supabase/schema.sql 里的 RLS 来模拟。
 import { createServer } from "node:http";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 
@@ -45,10 +45,15 @@ const users = [
 ];
 const ticks = [];
 const preferences = [];
+const wordReports = [];
+const inviteCodes = [
+  { code: "A1B2C3D4E5F6", created_at: "2026-01-01T00:00:00.000Z", used_at: null, used_by: null, used_email: null },
+  { code: "DEADBEEF0000", created_at: "2026-01-01T00:00:00.000Z", used_at: "2026-01-02T00:00:00.000Z", used_by: "11111111-1111-4111-8111-111111111111", used_email: "buyer-a@example.com" },
+];
 const sessions = new Map();
 const refreshTokens = new Map();
 
-const tables = { videos: videos, items: items, ticks: ticks, preferences: preferences };
+const tables = { videos: videos, items: items, ticks: ticks, preferences: preferences, word_reports: wordReports };
 
 function publicUser(user) {
   return {
@@ -153,8 +158,54 @@ function visibleRows(table, user) {
 }
 
 function canInsert(table, user, row) {
-  if (table === "ticks" || table === "preferences") return row.user_id === user.id;
+  if (table === "ticks" || table === "preferences" || table === "word_reports") return row.user_id === user.id;
   return false;
+}
+
+function normalizeCode(raw) {
+  return String(raw || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+async function handleRegister(req, res) {
+  if (req.method === "OPTIONS") {
+    send(res, 204, null);
+    return;
+  }
+  if (req.method !== "POST") {
+    send(res, 405, { error: "只接受 POST" });
+    return;
+  }
+  const body = await readBody(req);
+  const email = String((body && body.email) || "").trim().toLowerCase();
+  const password = String((body && body.password) || "");
+  const code = normalizeCode(body && body.code);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    send(res, 400, { error: "邮箱格式不对" });
+    return;
+  }
+  if (password.length < 6) {
+    send(res, 400, { error: "密码至少 6 位" });
+    return;
+  }
+  if (!/^[A-F0-9]{12}$/.test(code)) {
+    send(res, 400, { error: "邀请码不正确" });
+    return;
+  }
+  const invite = inviteCodes.find(function (row) { return row.code === code && !row.used_at; });
+  if (!invite) {
+    send(res, 400, { error: "邀请码无效或已经使用过" });
+    return;
+  }
+  if (users.some(function (user) { return user.email === email; })) {
+    send(res, 400, { error: "这个邮箱已经注册，请直接登录" });
+    return;
+  }
+  invite.used_at = new Date().toISOString();
+  invite.used_email = email;
+  const user = { id: randomUUID(), email: email, password: password };
+  users.push(user);
+  invite.used_by = user.id;
+  send(res, 200, { ok: true });
 }
 
 function project(row, select) {
@@ -310,6 +361,14 @@ async function handleAuth(req, res, url) {
 
 async function handleRest(req, res, url) {
   const table = url.pathname.replace(/^\/rest\/v1\//, "");
+  if (table === "invite_codes") {
+    send(res, 401, { message: "permission denied for table invite_codes", code: "42501" });
+    return;
+  }
+  if (table === "word_reports" && req.method !== "POST") {
+    send(res, 401, { message: "permission denied for table word_reports", code: "42501" });
+    return;
+  }
   if (!tables[table]) {
     send(res, 404, { message: "table not found", code: "PGRST205" });
     return;
@@ -354,7 +413,8 @@ async function handleRest(req, res, url) {
         saved.push(existing);
       } else {
         const copy = Object.assign({}, row);
-        if (table === "ticks" && !copy.created_at) copy.created_at = new Date().toISOString();
+        if ((table === "ticks" || table === "word_reports") && !copy.created_at) copy.created_at = new Date().toISOString();
+        if (table === "word_reports" && !copy.id) copy.id = randomUUID();
         tables[table].push(copy);
         saved.push(copy);
       }
@@ -408,6 +468,10 @@ const server = createServer(async function (req, res) {
     return;
   }
   try {
+    if (url.pathname === "/functions/v1/register") {
+      await handleRegister(req, res);
+      return;
+    }
     if (url.pathname.startsWith("/auth/v1/")) {
       await handleAuth(req, res, url);
       return;

@@ -56,21 +56,15 @@ try {
   page.setDefaultTimeout(15000);
 
   await page.setViewport({ width: 1280, height: 900 });
-  await page.goto("http://127.0.0.1:8765/", { waitUntil: "networkidle0" });
-  await page.waitForSelector("#config-problems");
-  const unconfigured = await page.$eval("#config-problems", (el) => el.textContent);
-  assert(unconfigured.includes("还没有填写"), unconfigured);
-  const raw = await page.content();
-  assert(!raw.includes(sample.en), "未配置页面的源码里出现了单词");
-  assert(await page.$("#list") === null || await page.$eval("#app", (el) => el.hidden), "未登录时词表区域不该打开");
-  const purchase = await page.$eval("#purchase-note", (el) => el.textContent);
-  assert(purchase.includes("联系方式"), purchase);
-  await page.screenshot({ path: join(shots, "login-unconfigured.png") });
-
   await page.setCacheEnabled(false);
+  let configMode = "placeholder";
   await page.setRequestInterception(true);
   page.on("request", (request) => {
-    if (request.url().endsWith("/config.js")) {
+    if (!request.url().endsWith("/config.js")) {
+      request.continue();
+      return;
+    }
+    if (configMode === "secret") {
       const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
       const payload = Buffer.from(JSON.stringify({ role: "service_role" })).toString("base64url");
       request.respond({
@@ -84,8 +78,28 @@ try {
       });
       return;
     }
-    request.continue();
+    request.respond({
+      status: 200,
+      contentType: "application/javascript",
+      body: "window.IELTS_CONFIG = " + JSON.stringify({
+        supabaseUrl: "https://YOUR_PROJECT_REF.supabase.co",
+        supabaseAnonKey: "YOUR_SUPABASE_ANON_KEY",
+        purchaseNote: "付款后联系站长。联系方式：测试",
+      }) + ";",
+    });
   });
+  await page.goto("http://127.0.0.1:8765/", { waitUntil: "networkidle0" });
+  await page.waitForSelector("#config-problems:not([hidden])");
+  const unconfigured = await page.$eval("#config-problems", (el) => el.textContent);
+  assert(unconfigured.includes("还没有填写"), unconfigured);
+  const raw = await page.content();
+  assert(!raw.includes(sample.en), "未配置页面的源码里出现了单词");
+  assert(await page.$("#list") === null || await page.$eval("#app", (el) => el.hidden), "未登录时词表区域不该打开");
+  const purchase = await page.$eval("#purchase-note", (el) => el.textContent);
+  assert(purchase.includes("联系方式"), purchase);
+  await page.screenshot({ path: join(shots, "login-unconfigured.png") });
+
+  configMode = "secret";
   await page.reload({ waitUntil: "networkidle0" });
   const secretWarning = await page.$eval("#config-problems", (el) => el.textContent);
   assert(secretWarning.includes("不能放在网页里"), secretWarning);
@@ -220,8 +234,46 @@ try {
   assert(overflow <= 1, "手机宽度溢出 " + overflow + "px");
   await app.screenshot({ path: join(shots, "mobile-search.png"), fullPage: false });
 
-  await app.setViewport({ width: 1280, height: 900 });
-  await app.screenshot({ path: join(shots, "desktop-after-mobile.png") });
+  await app.click("#list .flag");
+  await app.waitForSelector("#report-modal:not([hidden])");
+  const reportedWord = await app.$eval("#report-word", (el) => el.textContent);
+  assert(reportedWord && reportedWord.length > 0, "报错弹窗没有单词");
+  await app.type("#report-note", "拼写可能不对");
+  await app.click("#report-save");
+  await app.waitForFunction(() => document.getElementById("toast").textContent.includes("已提交"));
+  await app.click("#logout");
+  await app.waitForSelector("#login:not([hidden])");
+  await app.click("#tab-register");
+  await app.waitForSelector("#register-form:not([hidden])");
+  await app.type("#reg-email", "buyer-c@example.com");
+  await app.type("#reg-password", "password-c");
+  await app.type("#reg-password-2", "password-c");
+  await app.type("#reg-code", "NOPE");
+  await app.click("#reg-submit");
+  await app.waitForSelector("#reg-error:not([hidden])");
+  const badCode = await app.$eval("#reg-error", (el) => el.textContent);
+  assert(badCode.includes("邀请码"), badCode);
+  await app.$eval("#reg-code", (el) => { el.value = ""; });
+  await app.type("#reg-code", "A1B2C3D4E5F6");
+  await app.click("#reg-submit");
+  await app.waitForFunction(() => document.getElementById("who").textContent.includes("buyer-c@example.com") && document.getElementById("footer-stats").textContent.includes("5463"));
+  await app.screenshot({ path: join(shots, "registered.png") });
+  await app.click("#logout");
+  await app.waitForSelector("#login:not([hidden])");
+  await app.click("#tab-register");
+  await app.$eval("#reg-email", (el) => { el.value = ""; });
+  await app.$eval("#reg-password", (el) => { el.value = ""; });
+  await app.$eval("#reg-password-2", (el) => { el.value = ""; });
+  await app.$eval("#reg-code", (el) => { el.value = ""; });
+  await app.type("#reg-email", "buyer-d@example.com");
+  await app.type("#reg-password", "password-d");
+  await app.type("#reg-password-2", "password-d");
+  await app.type("#reg-code", "A1B2C3D4E5F6");
+  await app.click("#reg-submit");
+  await app.waitForSelector("#reg-error:not([hidden])");
+  const usedCode = await app.$eval("#reg-error", (el) => el.textContent);
+  assert(usedCode.includes("已经使用"), usedCode);
+
   console.log("browser ok", sample.id);
 } finally {
   await browser.close();
