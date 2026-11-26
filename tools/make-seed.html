@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>生成词表 SQL</title>
+  <style>
+    body { margin: 0; font-family: "PingFang SC", "Microsoft YaHei", sans-serif; background: #f3efe6; color: #1c1915; }
+    main { width: min(820px, calc(100% - 32px)); margin: 32px auto 64px; }
+    h1 { font-size: 28px; margin: 0 0 8px; }
+    p, li { line-height: 1.65; }
+    .card { background: #fffdf8; border: 1px solid #e4d9c6; border-radius: 14px; padding: 16px 18px; margin: 16px 0; }
+    button, input { font: inherit; }
+    button { border: 1px solid #d9d0c1; background: #fff; border-radius: 10px; padding: 8px 12px; cursor: pointer; }
+    button.primary { background: #1f6f5b; color: white; border-color: #1f6f5b; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .warn { background: #fff4e8; border: 1px solid #e7c39a; border-radius: 10px; padding: 10px 12px; }
+    textarea { width: 100%; min-height: 140px; font-family: ui-monospace, monospace; font-size: 12px; }
+    .err { color: #b6402a; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>生成词表 SQL</h1>
+    <p>这个页面只在你自己的电脑上运行。它会把语料库 JSON 分成几段 SQL，你再粘贴到 Supabase 的 SQL Editor。页面里一开始没有单词。</p>
+    <div class="card warn">
+      生成出来的 SQL 含有全部单词。不要上传到 GitHub，不要发给买家，不要发到群里。只粘贴到你自己的 Supabase。
+    </div>
+    <ol>
+      <li>在 GitHub 仓库页面点 Code → Download ZIP，解压。</li>
+      <li>双击打开解压后的 <b>tools/make-seed.html</b>（不要在 GitHub 网页里打开）。</li>
+      <li>选择 <b>corpus_bv1nTNkzjEVn.json</b>。</li>
+      <li>先确认已经运行过 <b>supabase/schema.sql</b>。</li>
+      <li>下面每一段按顺序点「复制」，到 Supabase → SQL Editor → New query 粘贴，点 Run。看到 Success 再做下一段。</li>
+      <li>最后一段是检查。结果应是 videos = 32，items = 5463。</li>
+    </ol>
+    <div class="card">
+      <div class="row">
+        <input id="file" type="file" accept=".json,application/json">
+      </div>
+      <p id="status">还没有选择文件。</p>
+      <p id="error" class="err" hidden></p>
+    </div>
+    <div id="out"></div>
+  </main>
+  <script src="../scripts/seed-lib.js"></script>
+  <script>
+    if (!window.SeedLib) {
+      document.getElementById('error').hidden = false;
+      document.getElementById('error').textContent = '没有找到 scripts/seed-lib.js。请从 GitHub 下载整个 ZIP，解压后打开这个文件，不要只下载这一个网页。';
+    }
+    document.getElementById('file').addEventListener('change', function (event) {
+      var file = event.target.files && event.target.files[0];
+      var status = document.getElementById('status');
+      var error = document.getElementById('error');
+      var out = document.getElementById('out');
+      error.hidden = true;
+      out.innerHTML = '';
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function () {
+        try {
+          var corpus = JSON.parse(String(reader.result));
+          var seed = window.SeedLib.buildSeed(corpus);
+          status.textContent = '已读取 ' + seed.videoCount + ' 集，' + seed.itemCount + ' 个单词。请按下面的顺序运行，共 ' + seed.files.length + ' 段。';
+          seed.files.forEach(function (part, index) {
+            var card = document.createElement('section');
+            card.className = 'card';
+            var title = document.createElement('h2');
+            title.textContent = (index + 1) + '. ' + part.name + ' · ' + part.title;
+            var row = document.createElement('div');
+            row.className = 'row';
+            var copyBtn = document.createElement('button');
+            copyBtn.className = 'primary';
+            copyBtn.type = 'button';
+            copyBtn.textContent = '复制';
+            copyBtn.addEventListener('click', function () {
+              var area = card.querySelector('textarea');
+              area.focus();
+              area.select();
+              var done = function () {
+                copyBtn.textContent = '已复制';
+                setTimeout(function () { copyBtn.textContent = '复制'; }, 1500);
+              };
+              if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(part.sql).then(done).catch(function () {
+                  document.execCommand('copy');
+                  done();
+                });
+              } else {
+                document.execCommand('copy');
+                done();
+              }
+            });
+            var saveBtn = document.createElement('button');
+            saveBtn.type = 'button';
+            saveBtn.textContent = '下载 ' + part.name;
+            saveBtn.addEventListener('click', function () {
+              var blob = new Blob([part.sql], { type: 'text/plain;charset=utf-8' });
+              var link = document.createElement('a');
+              link.href = URL.createObjectURL(blob);
+              link.download = part.name;
+              link.click();
+              URL.revokeObjectURL(link.href);
+            });
+            var area = document.createElement('textarea');
+            area.readOnly = true;
+            area.value = part.sql;
+            row.appendChild(copyBtn);
+            row.appendChild(saveBtn);
+            card.appendChild(title);
+            card.appendChild(row);
+            card.appendChild(area);
+            out.appendChild(card);
+          });
+        } catch (err) {
+          status.textContent = '没有生成。';
+          error.hidden = false;
+          error.textContent = err && err.message ? err.message : '文件读不了。';
+        }
+      };
+      reader.readAsText(file, 'utf-8');
+    });
+  </script>
+</body>
+</html>
